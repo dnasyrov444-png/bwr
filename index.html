@@ -21,21 +21,56 @@
             left: 50px;
             z-index: 1000;
             background: rgba(255, 255, 255, 0.95);
-            padding: 10px;
+            padding: 12px;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            width: 230px;
         }
         #markerType {
             padding: 5px;
-            font-size: 16px;
+            font-size: 15px;
             width: 100%;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
             cursor: pointer;
+        }
+        .line-controls {
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        #lineModeBtn {
+            padding: 6px;
+            cursor: pointer;
+            flex-grow: 1;
+            border: 1px solid #999;
+            background-color: #f0f0f0;
+            border-radius: 3px;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+        #lineModeBtn.active {
+            background-color: #d4edda;
+            border-color: #28a745;
+        }
+        #lineColor {
+            cursor: pointer;
+            height: 32px;
+            width: 38px;
+            border: 1px solid #999;
+            padding: 0;
+            border-radius: 3px;
         }
         #instruction {
             font-size: 13px;
             color: #333;
             line-height: 1.4;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
         }
     </style>
 </head>
@@ -54,9 +89,14 @@
         <option value="mine">Мины</option>
         <option value="supplies">Сброс припасов</option>
         <option value="truck">Грузовик</option>
-        <option value="line">➖ Рисовать линию</option>
     </select>
-    <div id="instruction">ЛКМ: поставить маркер.<br>ПКМ по маркеру: удалить.</div>
+
+    <div class="line-controls">
+        <button id="lineModeBtn">✏️ Рисовать линию</button>
+        <input type="color" id="lineColor" value="#ff0000" title="Выбрать цвет линии">
+    </div>
+
+    <div id="instruction"><b>ЛКМ:</b> поставить маркер.<br><b>ПКМ по маркеру:</b> удалить.</div>
 </div>
 
 <script>
@@ -82,7 +122,7 @@
     const suppliesIcon = L.icon({ iconUrl: 'Supply_drop.png', ...iconSettings });
     const truckIcon = L.icon({ iconUrl: 'Truck.png', ...iconSettings });
 
-    // --- Слои для фильтрации (меню справа сверху) ---
+    // --- Слои для фильтрации ---
     const infantryLayer = L.layerGroup().addTo(map);
     const mgLayer = L.layerGroup().addTo(map);
     const artilleryLayer = L.layerGroup().addTo(map);
@@ -109,37 +149,57 @@
 
     L.control.layers(null, overlayMaps).addTo(map);
 
-    // --- Логика рисования ---
+    // --- Логика рисования и режимов ---
+    let isLineMode = false;
     let currentPolyline = null;
     let polylinePoints = [];
 
-    // Меняем подсказку при выборе пункта из меню
-    document.getElementById('markerType').addEventListener('change', function() {
-        const instr = document.getElementById('instruction');
-        if (this.value === 'line') {
-            instr.innerHTML = "<b>ЛКМ:</b> добавить точку линии.<br><b>ПКМ по карте:</b> закончить линию.<br><b>ПКМ по линии:</b> удалить её.";
+    const lineModeBtn = document.getElementById('lineModeBtn');
+    const markerTypeSelect = document.getElementById('markerType');
+    const instructionDiv = document.getElementById('instruction');
+    const lineColorInput = document.getElementById('lineColor');
+
+    // Кнопка переключения режима рисования линий
+    lineModeBtn.addEventListener('click', function() {
+        isLineMode = !isLineMode;
+        
+        if (isLineMode) {
+            lineModeBtn.classList.add('active');
+            lineModeBtn.innerText = '❌ Выключить линии';
+            instructionDiv.innerHTML = "<b>ЛКМ:</b> добавить точку линии.<br><b>ПКМ по карте:</b> закончить линию.<br><b>ПКМ по линии:</b> удалить её.";
+            markerTypeSelect.disabled = true; // Блокируем выбор маркеров, пока рисуем
+        } else {
+            lineModeBtn.classList.remove('active');
+            lineModeBtn.innerText = '✏️ Рисовать линию';
+            instructionDiv.innerHTML = "<b>ЛКМ:</b> поставить маркер.<br><b>ПКМ по маркеру:</b> удалить.";
+            markerTypeSelect.disabled = false;
+            
+            // Завершаем текущую линию, если выключили режим
             currentPolyline = null;
             polylinePoints = [];
-        } else {
-            instr.innerHTML = "<b>ЛКМ:</b> поставить маркер.<br><b>ПКМ по маркеру:</b> удалить.";
+        }
+    });
+
+    // Смена цвета линии "на лету"
+    lineColorInput.addEventListener('input', function(e) {
+        if (currentPolyline) {
+            currentPolyline.setStyle({ color: e.target.value });
         }
     });
 
     // Клик левой кнопкой мыши по карте
     map.on('click', function(e) {
-        const type = document.getElementById('markerType').value;
-
-        // Если выбран режим рисования линии
-        if (type === 'line') {
+        if (isLineMode) {
+            // --- РЕЖИМ ЛИНИЙ ---
+            const chosenColor = lineColorInput.value;
             polylinePoints.push(e.latlng);
 
             if (!currentPolyline) {
-                // Создаем линию с первой точки
-                currentPolyline = L.polyline(polylinePoints, { color: 'red', weight: 5, opacity: 0.8 }).addTo(linesLayer);
+                currentPolyline = L.polyline(polylinePoints, { color: chosenColor, weight: 5, opacity: 0.8 }).addTo(linesLayer);
                 
-                // Удаление линии при клике по ней правой кнопкой мыши
+                // Удаление линии при клике ПКМ
                 currentPolyline.on('contextmenu', function(ev) {
-                    L.DomEvent.stopPropagation(ev); // Блокируем вызов меню карты
+                    L.DomEvent.stopPropagation(ev);
                     linesLayer.removeLayer(this);
                     if (currentPolyline === this) {
                         currentPolyline = null;
@@ -147,51 +207,43 @@
                     }
                 });
             } else {
-                // Обновляем линию, добавляя новые точки
                 currentPolyline.setLatLngs(polylinePoints);
             }
-            return; // Завершаем функцию, чтобы не выполнялся код создания маркеров
+        } else {
+            // --- РЕЖИМ МАРКЕРОВ ---
+            const type = markerTypeSelect.value;
+            let selectedIcon, selectedLayer, popupText;
+
+            if (type === 'infantry') { selectedIcon = infantryIcon; selectedLayer = infantryLayer; popupText = "Пехота"; }
+            else if (type === 'mg') { selectedIcon = mgIcon; selectedLayer = mgLayer; popupText = "Пулемёт"; }
+            else if (type === 'artillery') { selectedIcon = artilleryIcon; selectedLayer = artilleryLayer; popupText = "ПТ пушка"; }
+            else if (type === 'engineer') { selectedIcon = engineerIcon; selectedLayer = engineerLayer; popupText = "Инженер"; }
+            else if (type === 'tank') { selectedIcon = tankIcon; selectedLayer = tankLayer; popupText = "Танк"; }
+            else if (type === 'garrison') { selectedIcon = garrisonIcon; selectedLayer = garrisonLayer; popupText = "Гарнизон"; }
+            else if (type === 'mine') { selectedIcon = mineIcon; selectedLayer = mineLayer; popupText = "Мины"; }
+            else if (type === 'supplies') { selectedIcon = suppliesIcon; selectedLayer = suppliesLayer; popupText = "Припасы"; }
+            else if (type === 'truck') { selectedIcon = truckIcon; selectedLayer = truckLayer; popupText = "Грузовик"; }
+
+            const description = prompt("Введите описание точки (или нажмите 'Отмена'):");
+            if (description === null) return; 
+
+            const newMarker = L.marker(e.latlng, { icon: selectedIcon })
+                .addTo(selectedLayer)
+                .bindPopup("<b>" + popupText + "</b>" + (description ? "<br>" + description : ""))
+                .openPopup();
+
+            newMarker.on('contextmenu', function(ev) {
+                L.DomEvent.stopPropagation(ev);
+                selectedLayer.removeLayer(newMarker);
+            });
         }
-
-        // Если ставится обычный маркер — сбрасываем незавершенную линию
-        currentPolyline = null;
-        polylinePoints = [];
-
-        let selectedIcon, selectedLayer, popupText;
-
-        if (type === 'infantry') { selectedIcon = infantryIcon; selectedLayer = infantryLayer; popupText = "Пехота"; }
-        else if (type === 'mg') { selectedIcon = mgIcon; selectedLayer = mgLayer; popupText = "Пулемёт"; }
-        else if (type === 'artillery') { selectedIcon = artilleryIcon; selectedLayer = artilleryLayer; popupText = "ПТ пушка"; }
-        else if (type === 'engineer') { selectedIcon = engineerIcon; selectedLayer = engineerLayer; popupText = "Инженер"; }
-        else if (type === 'tank') { selectedIcon = tankIcon; selectedLayer = tankLayer; popupText = "Танк"; }
-        else if (type === 'garrison') { selectedIcon = garrisonIcon; selectedLayer = garrisonLayer; popupText = "Гарнизон"; }
-        else if (type === 'mine') { selectedIcon = mineIcon; selectedLayer = mineLayer; popupText = "Мины"; }
-        else if (type === 'supplies') { selectedIcon = suppliesIcon; selectedLayer = suppliesLayer; popupText = "Припасы"; }
-        else if (type === 'truck') { selectedIcon = truckIcon; selectedLayer = truckLayer; popupText = "Грузовик"; }
-
-        const description = prompt("Введите описание точки (или нажмите 'Отмена', чтобы не ставить метку):");
-        if (description === null) return; 
-
-        const newMarker = L.marker(e.latlng, { icon: selectedIcon })
-            .addTo(selectedLayer)
-            .bindPopup("<b>" + popupText + "</b>" + (description ? "<br>" + description : ""))
-            .openPopup();
-
-        // Удаление маркера при клике по нему правой кнопкой мыши
-        newMarker.on('contextmenu', function(ev) {
-            L.DomEvent.stopPropagation(ev); // Чтобы правый клик по маркеру не завершал рисование линий на карте
-            selectedLayer.removeLayer(newMarker);
-        });
     });
 
-    // Завершение рисования текущей линии при клике правой кнопкой по самой карте
+    // Завершение линии при ПКМ по карте
     map.on('contextmenu', function(e) {
-        if (document.getElementById('markerType').value === 'line') {
-            if (currentPolyline) {
-                currentPolyline = null;
-                polylinePoints = [];
-                alert("Рисование текущей линии завершено. Следующий клик начнет новую линию.");
-            }
+        if (isLineMode && currentPolyline) {
+            currentPolyline = null;
+            polylinePoints = [];
         }
     });
 
