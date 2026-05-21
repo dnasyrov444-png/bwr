@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Тактическая карта Utah</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: sans-serif;
+            background-color: #1a1a1a;
+        }
+        #map { 
+            height: 100vh; 
+            width: 100vw;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 50px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        }
+        #markerType {
+            padding: 5px;
+            font-size: 16px;
+            width: 100%;
+            margin-bottom: 5px;
+            cursor: pointer;
+        }
+        #instruction {
+            font-size: 13px;
+            color: #333;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="controls">
+    <select id="markerType">
+        <option value="infantry">Пехота</option>
+        <option value="mg">Пулемёт</option>
+        <option value="artillery">ПТ пушка</option>
+        <option value="engineer">Инженер</option>
+        <option value="tank">Танк</option>
+        <option value="garrison">Гарнизон</option>
+        <option value="mine">Мины</option>
+        <option value="supplies">Сброс припасов</option>
+        <option value="truck">Грузовик</option>
+        <option value="line">➖ Рисовать линию</option>
+    </select>
+    <div id="instruction">ЛКМ: поставить маркер.<br>ПКМ по маркеру: удалить.</div>
+</div>
+
+<script>
+    const bounds = [[0,0], [2470,4050]];  
+
+    const map = L.map('map', {
+         crs: L.CRS.Simple,
+         minZoom: -2
+    });
+
+    L.imageOverlay('utah_map.jpg', bounds).addTo(map);
+    map.fitBounds(bounds);
+
+    // --- Настройка иконок ---
+    const iconSettings = { iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -16] };
+    const infantryIcon = L.icon({ iconUrl: 'Rifleman.png', ...iconSettings });
+    const mgIcon = L.icon({ iconUrl: 'Machine_gun.png', ...iconSettings });
+    const artilleryIcon = L.icon({ iconUrl: 'Anti-tank.png', ...iconSettings });
+    const engineerIcon = L.icon({ iconUrl: 'Engineer.png', ...iconSettings });
+    const garrisonIcon = L.icon({ iconUrl: 'Garrison.png', ...iconSettings });
+    const tankIcon = L.icon({ iconUrl: 'Tank.png', ...iconSettings });
+    const mineIcon = L.icon({ iconUrl: 'Mine.png', ...iconSettings });
+    const suppliesIcon = L.icon({ iconUrl: 'Supply_drop.png', ...iconSettings });
+    const truckIcon = L.icon({ iconUrl: 'Truck.png', ...iconSettings });
+
+    // --- Слои для фильтрации (меню справа сверху) ---
+    const infantryLayer = L.layerGroup().addTo(map);
+    const mgLayer = L.layerGroup().addTo(map);
+    const artilleryLayer = L.layerGroup().addTo(map);
+    const engineerLayer = L.layerGroup().addTo(map);
+    const garrisonLayer = L.layerGroup().addTo(map);
+    const tankLayer = L.layerGroup().addTo(map);
+    const mineLayer = L.layerGroup().addTo(map);
+    const suppliesLayer = L.layerGroup().addTo(map);
+    const truckLayer = L.layerGroup().addTo(map);
+    const linesLayer = L.layerGroup().addTo(map); 
+
+    const overlayMaps = {
+        "Пехота": infantryLayer,
+        "Пулемёты": mgLayer,
+        "ПТ пушки": artilleryLayer,
+        "Инженеры": engineerLayer,
+        "Гарнизоны": garrisonLayer,
+        "Танки": tankLayer,
+        "Мины": mineLayer,
+        "Припасы": suppliesLayer,
+        "Грузовики": truckLayer,
+        "Линии": linesLayer
+    };
+
+    L.control.layers(null, overlayMaps).addTo(map);
+
+    // --- Логика рисования ---
+    let currentPolyline = null;
+    let polylinePoints = [];
+
+    // Меняем подсказку при выборе пункта из меню
+    document.getElementById('markerType').addEventListener('change', function() {
+        const instr = document.getElementById('instruction');
+        if (this.value === 'line') {
+            instr.innerHTML = "<b>ЛКМ:</b> поставить точку линии.<br><b>ПКМ по карте:</b> завершить линию.<br><b>ПКМ по линии:</b> удалить её.";
+            currentPolyline = null;
+            polylinePoints = [];
+        } else {
+            instr.innerHTML = "<b>ЛКМ:</b> поставить маркер.<br><b>ПКМ по маркеру:</b> удалить.";
+        }
+    });
+
+    // Клик левой кнопкой мыши по карте
+    map.on('click', function(e) {
+        const type = document.getElementById('markerType').value;
+
+        // Рисование линии
+        if (type === 'line') {
+            polylinePoints.push(e.latlng);
+
+            if (!currentPolyline) {
+                currentPolyline = L.polyline(polylinePoints, { color: 'red', weight: 4 }).addTo(linesLayer);
+                
+                // Удаление линии при клике по ней правой кнопкой
+                currentPolyline.on('contextmenu', function(ev) {
+                    L.DomEvent.stopPropagation(ev);
+                    linesLayer.removeLayer(this);
+                    if (currentPolyline === this) {
+                        currentPolyline = null;
+                        polylinePoints = [];
+                    }
+                });
+            } else {
+                currentPolyline.setLatLngs(polylinePoints);
+            }
+            return; 
+        }
+
+        // Установка маркеров
+        currentPolyline = null;
+        polylinePoints = [];
+
+        let selectedIcon, selectedLayer, popupText;
+
+        if (type === 'infantry') { selectedIcon = infantryIcon; selectedLayer = infantryLayer; popupText = "Пехота"; }
+        else if (type === 'mg') { selectedIcon = mgIcon; selectedLayer = mgLayer; popupText = "Пулемёт"; }
+        else if (type === 'artillery') { selectedIcon = artilleryIcon; selectedLayer = artilleryLayer; popupText = "ПТ пушка"; }
+        else if (type === 'engineer') { selectedIcon = engineerIcon; selectedLayer = engineerLayer; popupText = "Инженер"; }
+        else if (type === 'tank') { selectedIcon = tankIcon; selectedLayer = tankLayer; popupText = "Танк"; }
+        else if (type === 'garrison') { selectedIcon = garrisonIcon; selectedLayer = garrisonLayer; popupText = "Гарнизон"; }
+        else if (type === 'mine') { selectedIcon = mineIcon; selectedLayer = mineLayer; popupText = "Мины"; }
+        else if (type === 'supplies') { selectedIcon = suppliesIcon; selectedLayer = suppliesLayer; popupText = "Припасы"; }
+        else if (type === 'truck') { selectedIcon = truckIcon; selectedLayer = truckLayer; popupText = "Грузовик"; }
+
+        const description = prompt("Введите описание точки (или нажмите 'Отмена', чтобы не ставить метку):");
+        
+        if (description === null) return; // Если нажата Отмена - прерываем установку
+
+        const newMarker = L.marker(e.latlng, { icon: selectedIcon })
+            .addTo(selectedLayer)
+            .bindPopup("<b>" + popupText + "</b>" + (description ? "<br>" + description : ""))
+            .openPopup();
+
+        // Удаление маркера при клике по нему правой кнопкой
+        newMarker.on('contextmenu', function() {
+            selectedLayer.removeLayer(newMarker);
+        });
+    });
+
+    // Завершение рисования линии при клике правой кнопкой по самой карте
+    map.on('contextmenu', function(e) {
+        if (document.getElementById('markerType').value === 'line' && currentPolyline) {
+            currentPolyline = null;
+            polylinePoints = [];
+        }
+    });
+
+</script>
+</body>
+</html>
