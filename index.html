@@ -117,7 +117,7 @@
     document.getElementById('markerType').addEventListener('change', function() {
         const instr = document.getElementById('instruction');
         if (this.value === 'line') {
-            instr.innerHTML = "<b>ЛКМ:</b> поставить точку линии.<br><b>ПКМ по карте:</b> завершить линию.<br><b>ПКМ по линии:</b> удалить её.";
+            instr.innerHTML = "<b>ЛКМ:</b> добавить точку линии.<br><b>ПКМ по карте:</b> закончить линию.<br><b>ПКМ по линии:</b> удалить её.";
             currentPolyline = null;
             polylinePoints = [];
         } else {
@@ -129,16 +129,17 @@
     map.on('click', function(e) {
         const type = document.getElementById('markerType').value;
 
-        // Рисование линии
+        // Если выбран режим рисования линии
         if (type === 'line') {
             polylinePoints.push(e.latlng);
 
             if (!currentPolyline) {
-                currentPolyline = L.polyline(polylinePoints, { color: 'red', weight: 4 }).addTo(linesLayer);
+                // Создаем линию с первой точки
+                currentPolyline = L.polyline(polylinePoints, { color: 'red', weight: 5, opacity: 0.8 }).addTo(linesLayer);
                 
-                // Удаление линии при клике по ней правой кнопкой
+                // Удаление линии при клике по ней правой кнопкой мыши
                 currentPolyline.on('contextmenu', function(ev) {
-                    L.DomEvent.stopPropagation(ev);
+                    L.DomEvent.stopPropagation(ev); // Блокируем вызов меню карты
                     linesLayer.removeLayer(this);
                     if (currentPolyline === this) {
                         currentPolyline = null;
@@ -146,12 +147,13 @@
                     }
                 });
             } else {
+                // Обновляем линию, добавляя новые точки
                 currentPolyline.setLatLngs(polylinePoints);
             }
-            return; 
+            return; // Завершаем функцию, чтобы не выполнялся код создания маркеров
         }
 
-        // Установка маркеров
+        // Если ставится обычный маркер — сбрасываем незавершенную линию
         currentPolyline = null;
         polylinePoints = [];
 
@@ -168,25 +170,28 @@
         else if (type === 'truck') { selectedIcon = truckIcon; selectedLayer = truckLayer; popupText = "Грузовик"; }
 
         const description = prompt("Введите описание точки (или нажмите 'Отмена', чтобы не ставить метку):");
-        
-        if (description === null) return; // Если нажата Отмена - прерываем установку
+        if (description === null) return; 
 
         const newMarker = L.marker(e.latlng, { icon: selectedIcon })
             .addTo(selectedLayer)
             .bindPopup("<b>" + popupText + "</b>" + (description ? "<br>" + description : ""))
             .openPopup();
 
-        // Удаление маркера при клике по нему правой кнопкой
-        newMarker.on('contextmenu', function() {
+        // Удаление маркера при клике по нему правой кнопкой мыши
+        newMarker.on('contextmenu', function(ev) {
+            L.DomEvent.stopPropagation(ev); // Чтобы правый клик по маркеру не завершал рисование линий на карте
             selectedLayer.removeLayer(newMarker);
         });
     });
 
-    // Завершение рисования линии при клике правой кнопкой по самой карте
+    // Завершение рисования текущей линии при клике правой кнопкой по самой карте
     map.on('contextmenu', function(e) {
-        if (document.getElementById('markerType').value === 'line' && currentPolyline) {
-            currentPolyline = null;
-            polylinePoints = [];
+        if (document.getElementById('markerType').value === 'line') {
+            if (currentPolyline) {
+                currentPolyline = null;
+                polylinePoints = [];
+                alert("Рисование текущей линии завершено. Следующий клик начнет новую линию.");
+            }
         }
     });
 
